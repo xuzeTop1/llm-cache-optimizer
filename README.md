@@ -1,9 +1,14 @@
+<p align="center">
+  <b>🚀 Stop paying full price for every API call.</b><br>
+  Maximize prefix-cache hit rates across <b>DeepSeek, Claude, Gemini, OpenAI</b>.<<br>
+  Cut token costs by up to <b>90%</b> with a stable prompt architecture.
+</p>
+
 ---
 
 # LLM Prompt Cache Optimizer
 
 A skill for maximizing prompt cache hit rates across any prefix-cache LLM (DeepSeek, Claude, Gemini, OpenAI), reducing token costs and latency.
-
 ---
 
 ## Core Mental Model

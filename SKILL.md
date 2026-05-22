@@ -1,15 +1,14 @@
 ---
 name: llm-cache-optimizer
-description: |
-  Apply this skill whenever the user is building, reviewing, or debugging an Agent that calls any LLM with prefix-based prompt caching — including DeepSeek, Anthropic Claude (prompt caching via cache_control), Google Gemini (implicit prefix cache), or OpenAI. Triggers include: any mention of prompt caching, cache hit rate, token cost optimization, Agent loop design, multi-turn conversation design, system prompt management, context window management, or tool result handling.
-
-  This skill teaches Claude to actively audit prompt construction code and restructure it so that the stable "public prefix" is always prepended first and never mutated — maximizing cache hit rate. It covers provider-specific APIs, prompt layering architecture, context compaction, prefix hash registry for multi-worker systems, tool result canonicalization, and cache warm-up patterns.
-
+description: >
+  Use when building, reviewing, or debugging LLM agents with prefix-based prompt caching (DeepSeek, Claude, Gemini, OpenAI). Triggers: prompt caching, cache hit rate, token cost, agent loop, multi-turn conversation, system prompt, context window, tool results. Covers provider-specific APIs, prompt layering, context compaction, multi-worker prefix registry, tool result canonicalization, and cache warm-up. Compatible with Claude Code, OpenAI Codex CLI, OpenCode, and all prefix-cache LLM providers.
 ---
 
 # LLM Prompt Cache Optimizer
 
 Production-grade skill for maximizing prompt cache hit rates across any prefix-cache LLM (DeepSeek, Claude, Gemini, OpenAI), covering architecture design, multi-agent systems, and context lifecycle management.
+
+Compatible with: **Claude Code** · **OpenAI Codex CLI** · **OpenCode** · any agent framework using LLM APIs.
 
 ---
 
@@ -33,12 +32,12 @@ All major LLMs use **prefix matching** for caching: if the first N tokens of a n
 
 ## Provider Comparison
 
-| Provider             | Mechanism                | Min Cacheable | TTL                | Cached Cost |
-| -------------------- | ------------------------ | ------------- | ------------------ | ----------- |
-| **DeepSeek**         | Automatic prefix cache   | 64 tokens     | ~Hours             | ~10%        |
-| **Anthropic Claude** | Explicit `cache_control` | 1024 tokens   | 5 min (extendable) | ~10%        |
-| **Google Gemini**    | Explicit `cachedContent` | 32k tokens    | Configurable       | ~25%        |
-| **OpenAI**           | Automatic prefix cache   | 1128 tokens   | ~1 hour            | ~50%        |
+| Provider | Mechanism | Min Cacheable | TTL | Cached Cost |
+|---|---|---|---|---|
+| **DeepSeek** | Automatic prefix cache | 64 tokens | ~Hours | ~10% |
+| **Anthropic Claude** | Explicit `cache_control` | 1024 tokens | 5 min (extendable) | ~10% |
+| **Google Gemini** | Explicit `cachedContent` | 32k tokens | Configurable | ~25% |
+| **OpenAI** | Automatic prefix cache | 1128 tokens | ~1 hour | ~50% |
 
 ---
 
@@ -65,7 +64,7 @@ Production agents should not use a single flat PREFIX. Instead, use **layered pr
 └─────────────────────────────────────────┘
 ```
 
-**Key principle:** Layers 1–3 form the "compilable prefix" — treat them like compiled bytecode. They should never be rebuilt at runtime.
+**Key principle:** Layers 1-3 form the "compilable prefix" — treat them like compiled bytecode. They should never be rebuilt at runtime.
 
 ```python
 # Build each layer once; combine in strict order
@@ -78,7 +77,7 @@ PREFIX_MESSAGES = [
     {"role": "system", "content": "\n\n".join([LAYER_CORE, LAYER_TOOLS, LAYER_RAG])},
 ]
 
-# Layers 4–5: runtime only
+# Layers 4-5: runtime only
 session_memory  = []   # summaries, user prefs — reset per session
 dynamic_history = []   # append-only conversation turns
 ```
@@ -181,7 +180,7 @@ def maybe_compact(history: list, prefix: list) -> list:
         model="...",
         messages=prefix + old_turns + [{
             "role": "user",
-            "content": "Summarize the conversation so far in 3–5 bullet points, "
+            "content": "Summarize the conversation so far in 3-5 bullet points, "
                        "preserving all key decisions and facts."
         }],
         max_tokens=300,
@@ -329,6 +328,25 @@ def chat(user_input: str) -> str:
 
     return msg.content
 ```
+
+---
+
+## Platform-Specific Notes
+
+### Claude Code
+Claude Code uses `cache_control` with `ephemeral` type. Place breakpoints at each stable layer boundary, ensuring each marked block is ≥1024 tokens:
+```python
+{"type": "text", "text": PREFIX_CONTENT, "cache_control": {"type": "ephemeral"}}
+```
+
+### OpenAI Codex CLI
+Codex uses automatic prefix caching. No API changes needed — just ensure prefix stability and size ≥1128 tokens. Use the OpenAI SDK standard:
+```python
+response.usage.prompt_tokens_details.cached_tokens  # check hit
+```
+
+### OpenCode
+OpenCode proxies through your configured model. Follow the provider's native caching mechanism. For Claude-backed: use `cache_control`. For OpenAI-backed: automatic.
 
 ---
 

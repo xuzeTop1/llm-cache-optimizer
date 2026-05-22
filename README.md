@@ -4,6 +4,12 @@
   Cut token costs by up to <b>90%</b> with a stable prompt architecture.
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Works%20with-Claude%20Code%20%7C%20Codex%20%7C%20OpenCode-blue" alt="Compatible">
+  <img src="https://img.shields.io/badge/LLMs-DeepSeek%20%7C%20Claude%20%7C%20Gemini%20%7C%20OpenAI-green" alt="LLMs">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
+</p>
+
 ---
 
 # LLM Prompt Cache Optimizer
@@ -14,6 +20,7 @@
 - ✅ Cut API costs by **80–90%** on repeated queries
 - ✅ Reduce token processing latency (cached tokens served instantly)
 - ✅ Works with all major providers: DeepSeek, Claude, Gemini, OpenAI
+- ✅ Compatible with Claude Code, OpenAI Codex CLI, OpenCode
 - ✅ Production-ready patterns with real code examples
 
 ---
@@ -58,32 +65,52 @@ Most major LLMs cache on **prefix matching**: if the first N tokens of a new req
 ❌ Turn 2:  [history_turn_1] + [PREFIX]          ← prefix moved, MISS
 ```
 
-**The golden rule: PREFIX is always first, always identical, never rebuilt.**
-
 ---
 
 ## 💰 Provider Comparison
 
-| Provider             | Cache Mechanism                      | Min Cacheable | TTL                | Cached Token Cost |
-| -------------------- | ------------------------------------ | ------------- | ------------------ | ----------------- |
-| **DeepSeek**         | Automatic prefix cache               | 64 tokens     | ~Hours             | ~10% of normal    |
-| **Anthropic Claude** | Explicit `cache_control` breakpoints | 1024 tokens   | 5 min (extendable) | ~10% of normal    |
-| **Google Gemini**    | Explicit `cachedContent` API         | 32k tokens    | Configurable       | ~25% of normal    |
-| **OpenAI**           | Automatic prefix cache               | 1128 tokens   | ~1 hour            | 50% of normal     |
+| Provider | Mechanism | Min Tokens | TTL | Cached Cost |
+|---|---|---|---|---|
+| **DeepSeek** | Automatic prefix cache | 64 | ~Hours | ~10% |
+| **Anthropic Claude** | Explicit `cache_control` | 1,024 | 5 min (extendable) | ~10% |
+| **Google Gemini** | Explicit `cachedContent` | 32,000 | Configurable | ~25% |
+| **OpenAI** | Automatic prefix cache | 1,128 | ~1 hour | ~50% |
 
 ---
 
-## ✅ Audit Checklist
+## 📦 Install to Your AI Coding Agent
 
-Use this when reviewing Agent code:
+### Claude Code
+```bash
+/plugin marketplace add anthropics/skills
+# Or: cp SKILL.md ~/.claude/skills/llm-cache-optimizer.md
+```
 
-- [ ] System prompt is always the **first message**, never rebuilt per-turn
-- [ ] Static context (RAG docs, tool schemas, persona) comes **immediately after** system prompt
-- [ ] Neither is modified between turns (no f-string injection of turn-specific data)
-- [ ] Conversation history is built by **appending**, not reconstructing
-- [ ] Dynamic data (user query, date, retrieved chunks) goes at the **end**
-- [ ] Tool results are appended in-place, not used to rebuild earlier messages
-- [ ] (Claude only) `cache_control` breakpoints are on stable, large blocks only
+### OpenAI Codex CLI
+```bash
+mkdir -p ~/.agents/skills/llm-cache-optimizer
+cp SKILL.md ~/.agents/skills/llm-cache-optimizer/
+# Restart Codex or run /init
+```
+
+### OpenCode
+```bash
+mkdir -p ~/.opencode/skills/llm-cache-optimizer
+cp SKILL.md ~/.opencode/skills/llm-cache-optimizer/
+# In OpenCode: /init
+```
+
+> **AI agent users**: import `SKILL.md` directly. See [`examples/`](./examples/) for platform-specific agent loop patterns.
+
+---
+
+## 📂 What's Inside
+
+| File | Purpose |
+|---|---|
+| `SKILL.md` | Full skill definition — import directly into your AI coding agent |
+| [`examples/`](./examples/) | Platform-specific agent loops (Claude Code, Codex, OpenCode, multi-provider) |
+| `README.md` | This page (GitHub landing) |
 
 ---
 
@@ -147,13 +174,12 @@ PREFIX_MESSAGES = [
             {
                 "type": "text",
                 "text": SYSTEM_PROMPT + "\n\n" + STATIC_CONTEXT,
-                "cache_control": {"type": "ephemeral"},  # mark cache boundary
+                "cache_control": {"type": "ephemeral"},
             }
         ],
     },
     {"role": "assistant", "content": "Understood."},
 ]
-# Check: response.usage.cache_read_input_tokens / cache_creation_input_tokens
 ```
 
 ---
@@ -174,7 +200,6 @@ cache = genai.caching.CachedContent.create(
 )
 model = genai.GenerativeModel.from_cached_content(cache)
 chat_session = model.start_chat()
-# history appended automatically by the SDK
 ```
 
 ---
@@ -240,8 +265,6 @@ messages = [{"role": "system", "content": SYSTEM + tool_output}] + history
 
 ### Hot Start (Refresh Cache TTL)
 
-For scheduled jobs or long idle gaps between Agent runs:
-
 ```python
 def warm_cache():
     """Reset cache TTL before the real workload starts."""
@@ -252,13 +275,7 @@ def warm_cache():
     )
 ```
 
-Call `warm_cache()` a few seconds before the first real task of each scheduled run.
-
----
-
 ### Multi-Worker Pattern
-
-When running multiple workers concurrently:
 
 ```python
 # Module-level — shared by all workers, cached once, hit by all
@@ -273,6 +290,18 @@ class AgentWorker:
         messages = PREFIX_MESSAGES + self.history   # shared prefix + local history
         ...
 ```
+
+---
+
+## ✅ Audit Checklist
+
+- [ ] System prompt is always the **first message**, never rebuilt per-turn
+- [ ] Static context (RAG docs, tool schemas, persona) comes **immediately after**
+- [ ] Neither is modified between turns (no f-string injection of turn-specific data)
+- [ ] Conversation history is built by **appending**, not reconstructing
+- [ ] Dynamic data (user query, date, retrieved chunks) goes at the **end**
+- [ ] Tool results are appended in-place, not used to rebuild earlier messages
+- [ ] (Claude only) `cache_control` breakpoints are on stable, large blocks only
 
 ---
 
@@ -292,18 +321,16 @@ def log_cache(usage, turn: int):
     print(f"[Turn {turn}] cache={rate:.0%}  hit={hit}  miss={miss}")
 ```
 
-**Target:** >80% hit rate after turn 1 for Agents with large system prompts.
-
-**If hit rate is low:**
-
-1. Verify `PREFIX_MESSAGES` is the same object each call (`id()` check)
-2. Look for f-strings or `.format()` anywhere in the prefix construction
-3. Confirm total prefix exceeds the provider's minimum cacheable size
-4. For Claude: confirm `cache_control` breakpoints are on blocks ≥1024 tokens
+**Target:** >80% hit rate after turn 1.
 
 ---
 
 ## 📖 See Also
 
-- `references/provider-cache-apis.md` — detailed per-provider API reference and edge cases
-- `references/cache-metrics-logging.md` — structured logging helpers for tracking efficiency over time
+- [`examples/`](./examples/) — Platform-specific agent loop examples
+- `references/provider-cache-apis.md` — per-provider API details and edge cases
+- `references/cache-metrics-logging.md` — structured logging helpers
+
+## 📄 License
+
+MIT © 2025

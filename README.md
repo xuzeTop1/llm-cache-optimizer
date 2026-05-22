@@ -1,6 +1,6 @@
 <p align="center">
   <b>🚀 Stop paying full price for every API call.</b><br>
-  Maximize prefix-cache hit rates across <b>DeepSeek, Claude, Gemini, OpenAI</b>.<<br>
+  Maximize prefix-cache hit rates across <b>DeepSeek, Claude, Gemini, OpenAI</b>.<br>
   Cut token costs by up to <b>90%</b> with a stable prompt architecture.
 </p>
 
@@ -8,28 +8,61 @@
 
 # LLM Prompt Cache Optimizer
 
-A skill for maximizing prompt cache hit rates across any prefix-cache LLM (DeepSeek, Claude, Gemini, OpenAI), reducing token costs and latency.
+**Systematically maximize prompt cache hit rates across any prefix-cache LLM**, reducing token costs and latency by keeping your prompt prefix stable and unchanged between requests.
+
+**Key benefits:**
+- ✅ Cut API costs by **80–90%** on repeated queries
+- ✅ Reduce token processing latency (cached tokens served instantly)
+- ✅ Works with all major providers: DeepSeek, Claude, Gemini, OpenAI
+- ✅ Production-ready patterns with real code examples
+
 ---
 
-## Core Mental Model
+## 📚 Quick Start (30 seconds)
 
-Most major LLMs cache on **prefix matching**: if the first N tokens of a new request exactly match a previously cached prefix, those tokens are served from cache at significantly reduced cost. The key invariant is simple:
+The **golden rule**: Your prompt prefix must always be the same, always first, never rebuilt.
+
+```python
+# ✅ Build once at startup
+SYSTEM_PROMPT = "You are a helpful assistant..."
+STATIC_CONTEXT = "<docs>...</docs>"
+PREFIX_MESSAGES = [
+    {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + STATIC_CONTEXT},
+]
+
+# ✅ Reuse in every turn
+conversation_history = []
+
+def chat(user_input: str) -> str:
+    conversation_history.append({"role": "user", "content": user_input})
+    messages = PREFIX_MESSAGES + conversation_history  # Prefix ALWAYS first
+    response = client.chat.completions.create(model="...", messages=messages)
+    return response.choices[0].message.content
+```
+
+**That's it.** This single pattern enables cache hits on every subsequent turn.
+
+---
+
+## 🧠 Core Mental Model
+
+Most major LLMs cache on **prefix matching**: if the first N tokens of a new request exactly match a previously cached prefix, those tokens are served from cache at significantly reduced cost.
 
 ```
 ✅ Turn 1:  [PREFIX] + [history_turn_1]
-✅ Turn 2:  [PREFIX] + [history_turn_1] + [history_turn_2]   ← prefix hit
-✅ Turn 3:  [PREFIX] + [history_turn_1] + [history_turn_2] + [history_turn_3]  ← hit
+✅ Turn 2:  [PREFIX] + [history_turn_1] + [history_turn_2]   ← prefix HIT
+✅ Turn 3:  [PREFIX] + [history_turn_1] + [history_turn_2] + [history_turn_3]  ← HIT
 
-❌ Turn 2:  [PREFIX] + [history_turn_2]          ← reordered, miss
-❌ Turn 2:  [new_PREFIX] + [history_turn_1]      ← mutated prefix, miss
-❌ Turn 2:  [history_turn_1] + [PREFIX]          ← prefix moved, miss
+❌ Turn 2:  [PREFIX] + [history_turn_2]          ← reordered, MISS
+❌ Turn 2:  [new_PREFIX] + [history_turn_1]      ← mutated prefix, MISS
+❌ Turn 2:  [history_turn_1] + [PREFIX]          ← prefix moved, MISS
 ```
 
 **The golden rule: PREFIX is always first, always identical, never rebuilt.**
 
 ---
 
-## Provider Comparison
+## 💰 Provider Comparison
 
 | Provider             | Cache Mechanism                      | Min Cacheable | TTL                | Cached Token Cost |
 | -------------------- | ------------------------------------ | ------------- | ------------------ | ----------------- |
@@ -40,9 +73,9 @@ Most major LLMs cache on **prefix matching**: if the first N tokens of a new req
 
 ---
 
-## Audit Checklist
+## ✅ Audit Checklist
 
-When reviewing Agent code, check each of these:
+Use this when reviewing Agent code:
 
 - [ ] System prompt is always the **first message**, never rebuilt per-turn
 - [ ] Static context (RAG docs, tool schemas, persona) comes **immediately after** system prompt
@@ -54,7 +87,7 @@ When reviewing Agent code, check each of these:
 
 ---
 
-## Canonical Pattern (all providers)
+## 🔧 Canonical Pattern (all providers)
 
 ```python
 # ── Build once at startup, never mutate ──────────────────────────────────────
@@ -65,7 +98,7 @@ PREFIX_MESSAGES = [
     {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + STATIC_CONTEXT},
 ]
 
-# ── Agent loop ────────────────────────────────────────────────────────────────
+# ── Agent loop ───────────────────────────────────────────────────────────────
 conversation_history = []   # turn-specific messages only
 
 def chat(user_input: str) -> str:
@@ -86,7 +119,7 @@ def chat(user_input: str) -> str:
 
 ---
 
-## Provider-Specific Notes
+## 🏭 Provider-Specific Implementation
 
 ### DeepSeek
 
@@ -157,7 +190,7 @@ Fully automatic for prompts ≥ 1128 tokens. No API changes needed.
 
 ---
 
-## Anti-Patterns to Fix
+## ❌ Anti-Patterns to Fix
 
 ### ❌ Dynamic data injected into system prompt
 
@@ -203,7 +236,9 @@ messages = [{"role": "system", "content": SYSTEM + tool_output}] + history
 
 ---
 
-## Hot Start Pattern
+## 🔥 Advanced Patterns
+
+### Hot Start (Refresh Cache TTL)
 
 For scheduled jobs or long idle gaps between Agent runs:
 
@@ -221,7 +256,27 @@ Call `warm_cache()` a few seconds before the first real task of each scheduled r
 
 ---
 
-## Diagnosing Cache Hit Rate
+### Multi-Worker Pattern
+
+When running multiple workers concurrently:
+
+```python
+# Module-level — shared by all workers, cached once, hit by all
+PREFIX_MESSAGES = [{"role": "system", "content": SYSTEM_PROMPT + STATIC_CONTEXT}]
+
+class AgentWorker:
+    def __init__(self):
+        self.history = []   # worker-local
+
+    def run(self, user_input: str):
+        self.history.append({"role": "user", "content": user_input})
+        messages = PREFIX_MESSAGES + self.history   # shared prefix + local history
+        ...
+```
+
+---
+
+## 📊 Diagnosing Cache Hit Rate
 
 ```python
 def log_cache(usage, turn: int):
@@ -248,25 +303,7 @@ def log_cache(usage, turn: int):
 
 ---
 
-## Multi-Worker Pattern
-
-```python
-# Module-level — shared by all workers, cached once, hit by all
-PREFIX_MESSAGES = [{"role": "system", "content": SYSTEM_PROMPT + STATIC_CONTEXT}]
-
-class AgentWorker:
-    def __init__(self):
-        self.history = []   # worker-local
-
-    def run(self, user_input: str):
-        self.history.append({"role": "user", "content": user_input})
-        messages = PREFIX_MESSAGES + self.history   # shared prefix + local history
-        ...
-```
-
----
-
-## See Also
+## 📖 See Also
 
 - `references/provider-cache-apis.md` — detailed per-provider API reference and edge cases
 - `references/cache-metrics-logging.md` — structured logging helpers for tracking efficiency over time

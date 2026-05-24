@@ -19,7 +19,7 @@ LayerName = Literal[
 ]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PromptLayer:
     """A named prompt layer with ordered, cache-aware content."""
 
@@ -29,7 +29,7 @@ class PromptLayer:
     stable: bool = True
 
 
-@dataclass(slots=True)
+@dataclass
 class PromptLayers:
     """Container for the six recommended cache-aware prompt layers."""
 

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 
-@dataclass(slots=True)
+@dataclass
 class CacheMetrics:
     """Track cache effectiveness and estimated savings."""
 

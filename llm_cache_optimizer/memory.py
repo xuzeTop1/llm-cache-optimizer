@@ -65,7 +65,7 @@ TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]{2,}|[\u4e00-\u9fff]{2,}")
 SENTENCE_RE = re.compile(r"(?<=[.!?。！？])\s+")
 
 
-@dataclass(slots=True)
+@dataclass
 class SessionMemory:
     """Summarize chat history into a compact cache-friendly memory block.
 

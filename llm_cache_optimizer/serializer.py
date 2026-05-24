@@ -41,7 +41,7 @@ UUID_RE = re.compile(
 REQUEST_ID_RE = re.compile(r"\b(?:req|request|trace|span|run)_[A-Za-z0-9_-]{8,}\b")
 
 
-@dataclass(slots=True)
+@dataclass
 class CanonicalSerializer:
     """Normalize prompt inputs so equivalent content produces stable strings."""
 

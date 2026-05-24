@@ -6,33 +6,39 @@
 
 `llm-cache-optimizer` 帮助开发者构建更容易命中前缀缓存的 LLM Agent：稳定 prompt 前缀、规范化易变输入、统计 cached token 收益，并把长对话压缩成可复用的 session memory。
 
-当前支持 OpenAI 风格的 chat messages，并提供 OpenAI SDK adapter。核心模块保持 provider-neutral，后续可以继续扩展到 DeepSeek、Claude、Gemini、OpenAI-compatible API、Codex、Claude Code 和 OpenCode 场景。
+当前支持 OpenAI 风格的 chat messages，并提供 OpenAI / DeepSeek adapter 和 Anthropic Claude adapter。核心模块保持 provider-neutral，后续可以继续扩展到 Gemini、Codex、Claude Code 和 OpenCode 场景。
 
 ## 为什么需要它
 
 很多 LLM 服务商都支持前缀缓存。只要新请求开头的一段 prompt 与之前处理过的 prompt prefix 匹配，服务商就可以复用缓存 token，从而降低延迟和成本。
 
-真正困难的地方不是“知道有缓存”，而是在真实 Agent 多轮工作流里保持 prompt prefix 稳定。
+真正困难的地方不是"知道有缓存"，而是在真实 Agent 多轮工作流里保持 prompt prefix 稳定。
 
 这个项目提供以下运行时能力：
 
 - 稳定的 prompt 分层：core system、tool schema、static context、session memory、history、runtime input
 - 规范化序列化：JSON key 排序、whitespace 归一化、移除时间戳和 request id
 - 指标统计：缓存命中率、cached tokens、基于 provider 价格预设的预估节省成本
-- Provider adapter：`CacheAwareOpenAI`
+- Provider adapters：`CacheAwareOpenAI`（OpenAI / DeepSeek）和 `CacheAwareClaude`（Anthropic）
 - Session memory：本地摘要或 LLM 摘要，以及关键词提取
 - Benchmark 工具：对比 naive 与 optimized DeepSeek cache hit 曲线
 
 ## 安装
 
+从源码安装（推荐，直到 PyPI 发布）：
+
 ```bash
-pip install llm-cache-optimizer
+git clone https://github.com/xuzeTop1/llm-cache-optimizer.git
+cd llm-cache-optimizer
+pip install -e .
 ```
 
-如果要使用 OpenAI adapter：
+使用可选的 provider 依赖：
 
 ```bash
-pip install "llm-cache-optimizer[openai]"
+pip install -e ".[openai]"      # OpenAI SDK（也适用于 DeepSeek）
+pip install -e ".[anthropic]"   # Anthropic SDK（Claude）
+pip install -e ".[all]"         # 所有 provider
 ```
 
 ## 快速开始
@@ -79,6 +85,33 @@ OpenAI().chat.completions.create(...)
 - `usage.prompt_tokens`
 - `usage.prompt_tokens_details.cached_tokens`
 - `usage.completion_tokens`
+
+## Claude Adapter
+
+Claude 需要**显式**的 `cache_control` 标记来指定哪些内容块应该被缓存（每个块最少 1024 tokens）。`CacheAwareClaude` adapter 会自动处理这些：
+
+```python
+from llm_cache_optimizer import CacheAwareClaude
+
+client = CacheAwareClaude(api_key="sk-ant-...")
+client.add_core("You are a helpful coding assistant. ..." * 10)  # ≥1024 tokens
+client.add_static_context("Project docs here...")
+
+response = client.chat("Explain decorators.")
+print(client.cache_report())
+```
+
+底层实现：
+1. 将所有稳定层（core、tools、static context）合并为一条 user message
+2. 如果内容足够大（≥ 4096 字符 ≈ 1024 tokens），自动添加 `cache_control: {"type": "ephemeral"}`
+3. 在 prefix 后插入 assistant turn（"Understood."）— Claude 缓存机制需要
+4. 将剩余历史转换为 Claude Messages API 格式
+
+安装：
+
+```bash
+pip install -e ".[anthropic]"
+```
 
 ## DeepSeek
 
@@ -155,6 +188,7 @@ print(memory["summary"])
 ```python
 from llm_cache_optimizer import (
     CacheAwareClient,
+    CacheAwareClaude,
     CacheAwareOpenAI,
     CacheMetrics,
     CanonicalSerializer,
@@ -240,9 +274,9 @@ python benchmark/run_benchmark.py
 
 - v0.1.0：package 结构、serializer、prompt layers、cache-aware client
 - v0.2.0：OpenAI adapter、metrics、本地 session memory
-- v0.3.0：DeepSeek 示例、CI、自定义 summarizer、benchmark 工具
+- v0.3.0：Claude adapter、DeepSeek 示例、CI、自定义 summarizer、benchmark 工具
 - v0.4.0：DeepSeek prefix diagnostics 和 provider-specific optimization report
-- 后续：Claude cache-control adapter、OpenCode hook、Claude Code skill、Codex middleware
+- 后续：Gemini adapter、OpenCode hook、Claude Code skill、Codex middleware
 
 ## Cache-Aware 设计规则
 
@@ -265,7 +299,7 @@ python benchmark/run_benchmark.py
 提交 PR 前建议运行：
 
 ```bash
-pip install -e ".[openai]"
+pip install -e ".[all]"
 pytest tests/ -v
 ```
 

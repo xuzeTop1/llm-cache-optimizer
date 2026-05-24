@@ -6,7 +6,7 @@ Agent Cache Runtime for building cache-aware LLM applications.
 
 `llm-cache-optimizer` helps agent developers keep prompt prefixes stable, canonicalize volatile inputs, track cached-token savings, and compact long conversations into reusable session memory.
 
-It works with OpenAI-style chat messages today, with a first-class OpenAI SDK adapter and provider-neutral primitives for DeepSeek, Claude, Gemini, OpenAI-compatible APIs, Codex, Claude Code, and OpenCode workflows.
+It works with OpenAI-style chat messages today, with first-class adapters for OpenAI / DeepSeek and Anthropic Claude, plus provider-neutral primitives for Gemini, OpenAI-compatible APIs, Codex, Claude Code, and OpenCode workflows.
 
 ## Why This Exists
 
@@ -19,20 +19,26 @@ This project gives you runtime building blocks for that job:
 - Stable prompt layering: core system, tool schema, static context, session memory, history, runtime input
 - Canonical serialization: sorted JSON keys, normalized whitespace, stripped timestamps and request IDs
 - Metrics: cache hit rate, cached tokens, estimated saved cost with provider pricing presets
-- Provider adapter: `CacheAwareOpenAI`
+- Provider adapters: `CacheAwareOpenAI` (OpenAI / DeepSeek) and `CacheAwareClaude` (Anthropic)
 - Session memory: local or LLM-powered summary and keyword extraction
 - Benchmark tooling: naive vs optimized DeepSeek cache-hit comparisons
 
 ## Install
 
+From source (recommended until PyPI release):
+
 ```bash
-pip install llm-cache-optimizer
+git clone https://github.com/xuzeTop1/llm-cache-optimizer.git
+cd llm-cache-optimizer
+pip install -e .
 ```
 
-For the OpenAI adapter:
+With optional provider dependencies:
 
 ```bash
-pip install "llm-cache-optimizer[openai]"
+pip install -e ".[openai]"      # OpenAI SDK (also works with DeepSeek)
+pip install -e ".[anthropic]"   # Anthropic SDK for Claude
+pip install -e ".[all]"         # Both providers
 ```
 
 ## Quick Start
@@ -79,6 +85,33 @@ It automatically builds cache-ordered messages and reads common usage fields suc
 - `usage.prompt_tokens`
 - `usage.prompt_tokens_details.cached_tokens`
 - `usage.completion_tokens`
+
+## Claude Adapter
+
+Claude requires **explicit** `cache_control` breakpoints on stable content blocks (minimum 1024 tokens each). The `CacheAwareClaude` adapter handles this automatically:
+
+```python
+from llm_cache_optimizer import CacheAwareClaude
+
+client = CacheAwareClaude(api_key="sk-ant-...")
+client.add_core("You are a helpful coding assistant. ..." * 10)  # ≥1024 tokens
+client.add_static_context("Project docs here...")
+
+response = client.chat("Explain decorators.")
+print(client.cache_report())
+```
+
+Under the hood, the adapter:
+1. Merges all stable layers (core, tools, static context) into a single user message
+2. Adds `cache_control: {"type": "ephemeral"}` if the block is large enough (≥ 4096 chars ≈ 1024 tokens)
+3. Inserts an assistant turn ("Understood.") after the prefix — required by Claude for caching
+4. Converts remaining history to Claude's Messages API format
+
+Install:
+
+```bash
+pip install -e ".[anthropic]"
+```
 
 ## DeepSeek
 
@@ -155,6 +188,7 @@ print(memory["summary"])
 ```python
 from llm_cache_optimizer import (
     CacheAwareClient,
+    CacheAwareClaude,
     CacheAwareOpenAI,
     CacheMetrics,
     CanonicalSerializer,
@@ -237,9 +271,9 @@ After running with a real API key, paste the generated summary table here:
 
 - v0.1.0: package structure, serializer, prompt layers, cache-aware client
 - v0.2.0: OpenAI adapter, metrics, local session memory
-- v0.3.0: DeepSeek example, CI, custom summarizers, benchmark tooling
+- v0.3.0: Claude adapter, DeepSeek example, CI, custom summarizers, benchmark tooling
 - v0.4.0: DeepSeek prefix diagnostics and provider-specific optimization reports
-- Future: Claude cache-control adapter, OpenCode hook, Claude Code skill, Codex middleware
+- Future: Gemini adapter, OpenCode hook, Claude Code skill, Codex middleware
 
 ## Cache-Aware Design Rules
 
@@ -262,7 +296,7 @@ Contributions are welcome. Good first areas:
 Before opening a PR:
 
 ```bash
-pip install -e ".[openai]"
+pip install -e ".[all]"
 pytest tests/ -v
 ```
 

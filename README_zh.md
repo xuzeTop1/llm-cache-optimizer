@@ -1,309 +1,195 @@
-<p align="center">
-  <b>🚀 停止为每次 API 调用支付全价。</b><br>
-  跨 <b>DeepSeek、Claude、Gemini、OpenAI</b> 最大化前缀缓存命中率。<br>
-  通过稳定的提示词结构，将令牌成本降低 <b>90%</b>。
-</p>
+# LLM Cache Optimizer
 
----
+面向 Agent 的 Prompt Cache Runtime。
 
-# LLM 提示词缓存优化器
+`llm-cache-optimizer` 帮助开发者构建更容易命中前缀缓存的 LLM Agent：稳定 prompt 前缀、规范化易变输入、统计缓存收益，并把长对话压缩成可复用的 session memory。
 
-**系统性地最大化任何支持前缀缓存的 LLM 的缓存命中率**，通过保持提示词前缀在请求之间稳定不变，来降低令牌成本和延迟。
+当前已经支持 OpenAI 风格的 chat messages，并提供 OpenAI SDK 适配器。核心模块保持 provider-neutral，后续可以继续扩展到 DeepSeek、Claude、Gemini、OpenAI-compatible API、Codex、Claude Code 和 OpenCode 场景。
 
-**主要优势：**
-- ✅ 在重复查询中将 API 成本降低 **80-90%**
-- ✅ 降低令牌处理延迟（缓存的令牌即时提供）
-- ✅ 适用于所有主要供应商：DeepSeek、Claude、Gemini、OpenAI
-- ✅ 生产就绪的模式和真实代码示例
+## 为什么需要它
 
----
+很多 LLM 服务商都支持前缀缓存。只要新请求开头的一段 prompt 与之前处理过的 prompt prefix 匹配，服务商就可以复用缓存 token，从而降低延迟和成本。
 
-## 📚 快速开始（30秒）
+真正困难的地方不是“知道有缓存”，而是在真实 Agent 多轮工作流里保持 prompt prefix 稳定。
 
-**黄金法则**：您的提示词前缀必须始终相同、始终在前、永不重建。
+这个项目提供以下运行时能力：
+
+- 稳定的 prompt 分层：core system、tool schema、static context、session memory、history、runtime input
+- 规范化序列化：JSON key 排序、whitespace 归一化、移除时间戳和 request id
+- 指标统计：缓存命中率、cached tokens、预估节省成本
+- Provider adapter：`CacheAwareOpenAI`
+- Session memory：本地摘要和关键词提取，用于更 cache-friendly 的历史压缩
+
+## 安装
+
+```bash
+pip install llm-cache-optimizer
+```
+
+如果要使用 OpenAI adapter：
+
+```bash
+pip install "llm-cache-optimizer[openai]"
+```
+
+## 快速开始
 
 ```python
-# ✅ 在启动时构建一次
-SYSTEM_PROMPT = "You are a helpful assistant..."
-STATIC_CONTEXT = "<docs>...</docs>"
-PREFIX_MESSAGES = [
-    {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + STATIC_CONTEXT},
-]
+from llm_cache_optimizer import CacheAwareClient
 
-# ✅ 在每一轮中重复使用
-conversation_history = []
+client = CacheAwareClient()
+client.add_core("You are a concise coding assistant.")
+client.add_tool_schema({"name": "read_file", "description": "Read a workspace file."})
+client.add_static_context("Project: llm-cache-optimizer")
 
-def chat(user_input: str) -> str:
-    conversation_history.append({"role": "user", "content": user_input})
-    messages = PREFIX_MESSAGES + conversation_history  # 前缀始终在前
-    response = client.chat.completions.create(model="...", messages=messages)
-    return response.choices[0].message.content
+messages = client.chat("Show me the cache-aware message layout.")
+print(messages)
 ```
 
-**就这样**。这一个模式就能在后续每一轮都启用缓存命中。
+生成消息时，稳定内容会始终排在动态输入前面：
 
----
-
-## 🧠 核心心智模型
-
-大多数主流 LLM 在**前缀匹配**上进行缓存：如果新请求的前 N 个令牌与之前缓存的前缀完全匹配，这些令牌将以显著降低的成本从缓存提供。
-
-```
-✅ 第 1 轮：  [前缀] + [历史第1轮]
-✅ 第 2 轮：  [前缀] + [历史第1轮] + [历史第2轮]   ← 前缀命中
-✅ 第 3 轮：  [前缀] + [历史第1轮] + [历史第2轮] + [历史第3轮]  ← 命中
-
-❌ 第 2 轮：  [前缀] + [历史第2轮]          ← 重新排序，未命中
-❌ 第 2 轮：  [新前缀] + [历史第1轮]      ← 前缀被修改，未命中
-❌ 第 2 轮：  [历史第1轮] + [前缀]          ← 前缀被移动，未命中
+```text
+core_system -> tool_schema -> static_context -> session_memory -> history -> runtime
 ```
 
-**黄金法则：前缀始终在前、始终相同、永不重建。**
-
----
-
-## 💰 供应商对比
-
-| 供应商               | 缓存机制                      | 最小可缓存 | 有效期             | 缓存令牌成本 |
-| -------------------- | ------------------------------------ | ------------- | ------------------ | ----------------- |
-| **DeepSeek**         | 自动前缀缓存               | 64 令牌     | ~小时             | ~正常价格的 10%    |
-| **Anthropic Claude** | 显式 `cache_control` 断点 | 1024 令牌   | 5 分钟（可延长） | ~正常价格的 10%    |
-| **Google Gemini**    | 显式 `cachedContent` API         | 32k 令牌    | 可配置       | ~正常价格的 25%    |
-| **OpenAI**           | 自动前缀缓存               | 1128 令牌   | ~1 小时            | 正常价格的 50%     |
-
----
-
-## ✅ 审核清单
-
-在审查 Agent 代码时使用：
-
-- [ ] 系统提示是**第一条消息**，每一轮都不重建
-- [ ] 静态上下文（RAG 文档、工具架构、角色设定）紧跟在系统提示后
-- [ ] 两者在轮次之间都不被修改（没有针对特定轮次的 f 字符串注入）
-- [ ] 对话历史通过**追加**来构建，而不是重建
-- [ ] 动态数据（用户查询、日期、检索到的块）放在**末尾**
-- [ ] 工具结果原地追加，不被用于重建之前的消息
-- [ ] （仅 Claude）`cache_control` 断点只在稳定的大块上
-
----
-
-## 🔧 规范模式（所有供应商）
+## OpenAI Adapter
 
 ```python
-# ── 在启动时构建一次，永不修改 ──────────────────────────────────────
-SYSTEM_PROMPT = "You are a helpful assistant. ..."
-STATIC_CONTEXT = "<docs>...your reusable RAG / tool schemas...</docs>"
+from llm_cache_optimizer import CacheAwareOpenAI
 
-PREFIX_MESSAGES = [
-    {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + STATIC_CONTEXT},
-]
+client = CacheAwareOpenAI(api_key="...", model="gpt-4o-mini")
+client.add_core("You are a concise coding assistant.")
+client.add_static_context("Stable project docs go here.")
 
-# ── Agent 循环 ────────────────────────────────────────────────────────────
-conversation_history = []   # 仅包含轮次特定的消息
-
-def chat(user_input: str) -> str:
-    conversation_history.append({"role": "user", "content": user_input})
-
-    # 稳定的前缀始终在前 — 这就是被缓存的部分
-    messages = PREFIX_MESSAGES + conversation_history
-
-    response = client.chat.completions.create(
-        model="...",
-        messages=messages,
-    )
-
-    reply = response.choices[0].message.content
-    conversation_history.append({"role": "assistant", "content": reply})
-    return reply
+response = client.chat("Refactor this function.")
+print(client.cache_report())
 ```
 
----
-
-## 🏭 供应商特定实现
-
-### DeepSeek
-
-完全自动 — 无需更改 API，只需保持前缀稳定。
+它包装的是：
 
 ```python
-client = OpenAI(api_key=..., base_url="https://api.deepseek.com/v1")
-# 检查：response.usage.prompt_cache_hit_tokens / prompt_cache_miss_tokens
+OpenAI().chat.completions.create(...)
 ```
 
----
+并会自动构建 cache-ordered messages，同时读取常见 usage 字段：
 
-### Anthropic Claude
+- `usage.prompt_tokens`
+- `usage.prompt_tokens_details.cached_tokens`
+- `usage.completion_tokens`
 
-需要在稳定块上使用**显式** `cache_control` 断点。最小块大小：**1024 令牌**。
+## Session Memory
+
+长时间运行的 Agent 不应该不断重建不稳定的 prompt prefix。可以使用 session memory 对历史进行摘要，并提取可复用关键词。
 
 ```python
-import anthropic
-client = anthropic.Anthropic()
+from llm_cache_optimizer import CacheAwareClient
 
-PREFIX_MESSAGES = [
-    {
-        "role": "user",
-        "content": [
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT + "\n\n" + STATIC_CONTEXT,
-                "cache_control": {"type": "ephemeral"},  # 标记缓存边界
-            }
-        ],
-    },
-    {"role": "assistant", "content": "Understood."},
-]
-# 检查：response.usage.cache_read_input_tokens / cache_creation_input_tokens
+client = CacheAwareClient()
+client.add_core("You are a cache-aware agent runtime.")
+client.chat("We are turning this repo into a Python runtime.")
+client.chat("Next we need an OpenAI adapter and a memory demo.")
+
+memory = client.refresh_memory()
+print(memory["summary"])
+print(memory["keywords"])
 ```
 
----
-
-### Google Gemini
-
-使用单独的 `cachedContent` 对象；最小大小为 **32k 令牌**。
+示例输出：
 
 ```python
-import google.generativeai as genai
-import datetime
+{
+    "summary": "user: We are turning this repo into a Python runtime. user: Next we need an OpenAI adapter and a memory demo.",
+    "keywords": ["adapter", "memory", "openai", "runtime"],
+}
+```
 
-cache = genai.caching.CachedContent.create(
-    model="gemini-1.5-pro-001",
-    system_instruction=SYSTEM_PROMPT,
-    contents=[{"role": "user", "parts": [{"text": STATIC_CONTEXT}]}],
-    ttl=datetime.timedelta(hours=1),
+## 核心 API
+
+```python
+from llm_cache_optimizer import (
+    CacheAwareClient,
+    CacheAwareOpenAI,
+    CacheMetrics,
+    CanonicalSerializer,
+    PromptBuilder,
+    SessionMemory,
 )
-model = genai.GenerativeModel.from_cached_content(cache)
-chat_session = model.start_chat()
-# 历史记录由 SDK 自动追加
 ```
 
----
-
-### OpenAI
-
-对于 ≥1128 令牌的提示词完全自动。无需更改 API。
+### CanonicalSerializer
 
 ```python
-# 只需保持前缀稳定且 ≥1128 令牌
-# 检查：response.usage.prompt_tokens_details.cached_tokens
+from llm_cache_optimizer import CanonicalSerializer
+
+serializer = CanonicalSerializer()
+
+stable = serializer.normalize({
+    "b": 2,
+    "a": "hello    world",
+    "created_at": "2026-05-24T10:00:00Z",
+    "request_id": "req_123456789",
+})
+
+print(stable)
+# {"a":"hello world","b":2}
 ```
 
----
-
-## ❌ 需要修复的反模式
-
-### ❌ 动态数据注入到系统提示中
+### PromptBuilder
 
 ```python
-# 错误 — 每一轮重建前缀，总是缓存未命中
-messages = [{"role": "system", "content": f"Today: {datetime.now()}. Docs: {docs}"}]
+from llm_cache_optimizer import PromptBuilder
+
+builder = PromptBuilder()
+builder.add_core("You are a helpful assistant.")
+builder.add_tool_schema({"name": "read_file"})
+builder.add_static_context("Stable docs")
+builder.add_history("Earlier user message")
+builder.add_runtime("Current user message")
+
+messages = builder.build()
 ```
 
-**修复**：将 `datetime.now()` 和每轮 `docs` 移到最后的用户消息中。
-
----
-
-### ❌ 从头开始重建历史
+### CacheMetrics
 
 ```python
-# 错误 — 每一轮创建新的列表对象
-messages = build_messages(all_past_messages)
+from llm_cache_optimizer import CacheMetrics
+
+metrics = CacheMetrics(input_cost_per_1m=2.50, cached_input_cost_per_1m=1.25)
+metrics.update_from_usage({
+    "prompt_tokens": 1200,
+    "prompt_tokens_details": {"cached_tokens": 900},
+    "completion_tokens": 32,
+})
+
+print(metrics.report())
 ```
 
-**修复**：保持单个列表，只使用 `.append()`。
+## 示例
 
----
+- [`examples/basic.py`](./examples/basic.py)：最小 runtime 示例
+- [`examples/memory_demo.py`](./examples/memory_demo.py)：本地摘要与关键词提取示例
+- [`examples/multi_provider_example.py`](./examples/multi_provider_example.py)：多 provider Agent loop 模式
+- [`examples/opencode_example.py`](./examples/opencode_example.py)：OpenCode 模式
+- [`examples/claude_code_example.py`](./examples/claude_code_example.py)：Claude Code 模式
+- [`examples/codex_example.py`](./examples/codex_example.py)：Codex 模式
 
-### ❌ 在历史中间插入上下文
+## 当前路线图
 
-```python
-# 错误 — 破坏前缀连续性
-messages = [system] + old_history + [retrieved_docs_msg] + new_history
-```
+- v0.1.0：package 结构、serializer、prompt layers、cache-aware client
+- v0.2.0：OpenAI adapter、metrics、本地 session memory
+- v0.3.0：benchmark system，对比 baseline 与 optimized agent loop
+- v0.4.0：DeepSeek prefix diagnostics 和 provider-specific optimization report
+- 后续：Claude cache-control adapter、OpenCode hook、Claude Code skill、Codex middleware
 
-**修复**：作为最后一条用户消息内容的一部分进行追加。
+## Cache-Aware 设计规则
 
----
+- 稳定内容放在最前面。
+- 不要每一轮都重建 system prompt。
+- tool schemas 和 static context 放在稳定层。
+- runtime data、时间戳、检索片段、用户输入尽量放在末尾。
+- tool output 进入 history 前先规范化。
+- 长历史压缩成 session memory，不要移动 prefix。
 
-### ❌ 工具结果注入回系统提示
+## License
 
-```python
-# 错误 — 销毁缓存的前缀
-messages = [{"role": "system", "content": SYSTEM + tool_output}] + history
-```
-
-**修复**：追加为 `{"role": "tool", "tool_call_id": ..., "content": ...}`。
-
----
-
-## 🔥 高级模式
-
-### 热启动（刷新缓存 TTL）
-
-对于计划任务或 Agent 运行之间的长空闲间隙：
-
-```python
-def warm_cache():
-    """在实际工作负载开始前重置缓存 TTL。"""
-    client.chat.completions.create(
-        model="...",
-        messages=PREFIX_MESSAGES + [{"role": "user", "content": "ping"}],
-        max_tokens=1,
-    )
-```
-
-在每个计划运行的第一个真实任务前几秒钟调用 `warm_cache()`。
-
----
-
-### 多工作线程模式
-
-当并发运行多个工作线程时：
-
-```python
-# 模块级 — 由所有工作线程共享，缓存一次，由全部命中
-PREFIX_MESSAGES = [{"role": "system", "content": SYSTEM_PROMPT + STATIC_CONTEXT}]
-
-class AgentWorker:
-    def __init__(self):
-        self.history = []   # 工作线程本地
-
-    def run(self, user_input: str):
-        self.history.append({"role": "user", "content": user_input})
-        messages = PREFIX_MESSAGES + self.history   # 共享前缀 + 本地历史
-        ...
-```
-
----
-
-## 📊 诊断缓存命中率
-
-```python
-def log_cache(usage, turn: int):
-    # DeepSeek / OpenAI 兼容格式
-    hit  = getattr(usage, "prompt_cache_hit_tokens", 0)
-    miss = getattr(usage, "prompt_cache_miss_tokens", 0)
-    # OpenAI 嵌套格式
-    if hasattr(usage, "prompt_tokens_details"):
-        hit  = usage.prompt_tokens_details.cached_tokens or 0
-        miss = usage.prompt_tokens - hit
-    total = hit + miss
-    rate  = hit / total if total else 0
-    print(f"[第 {turn} 轮] cache={rate:.0%}  hit={hit}  miss={miss}")
-```
-
-**目标**：对于系统提示词较大的 Agent，第 1 轮之后命中率 >80%。
-
-**如果命中率较低：**
-
-1. 验证 `PREFIX_MESSAGES` 是否为同一对象（使用 `id()` 检查）
-2. 在前缀构建中查找 f 字符串或 `.format()` 调用
-3. 确认总前缀超过供应商的最小可缓存大小
-4. 对于 Claude：确认 `cache_control` 断点只在 ≥1024 令牌的块上
-
----
-
-## 📖 另请参阅
-
-- `references/provider-cache-apis.md` — 详细的每个供应商 API 参考和边界情况
-- `references/cache-metrics-logging.md` — 用于跟踪效率随时间变化的结构化日志记录助手
+MIT

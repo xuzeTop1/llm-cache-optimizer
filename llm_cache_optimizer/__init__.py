@@ -1,6 +1,7 @@
 """Runtime primitives for cache-aware LLM agents."""
 
 from .client import CacheAwareClient
+from .adapters.claude import CacheAwareClaude
 from .adapters.openai import CacheAwareOpenAI
 from .layers import PromptBuilder, PromptLayer, PromptLayers
 from .memory import SessionMemory
@@ -9,6 +10,7 @@ from .serializer import CanonicalSerializer
 
 __all__ = [
     "CacheAwareClient",
+    "CacheAwareClaude",
     "CacheAwareOpenAI",
     "CacheMetrics",
     "CanonicalSerializer",

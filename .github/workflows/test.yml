@@ -15,4 +15,4 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[all]"
       - run: pip install pytest
-      - run: pytest tests/ -v
+      - run: python -m pytest tests/ -v

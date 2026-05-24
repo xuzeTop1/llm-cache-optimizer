@@ -31,7 +31,7 @@ class CacheAwareOpenAI(CacheAwareClient):
         super().__init__(
             chat_callable=self._chat_completion,
             serializer=serializer,
-            metrics=metrics,
+            metrics=metrics or CacheMetrics.from_provider(model),
         )
 
     def _build_client(

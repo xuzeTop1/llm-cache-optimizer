@@ -46,3 +46,15 @@ def test_cache_aware_openai_sends_cache_ordered_messages():
         ],
     }
     assert client.metrics.hit_rate == 0.75
+
+
+def test_cache_aware_openai_uses_model_pricing_preset():
+    fake = FakeOpenAIClient()
+    client = CacheAwareOpenAI(client=fake, model="deepseek-chat")
+    client.add_core("core")
+
+    client.chat("hello")
+
+    assert client.metrics.input_cost_per_1m == 1.0
+    assert client.metrics.cached_input_cost_per_1m == 0.1
+    assert client.metrics.estimated_cost_saved > 0

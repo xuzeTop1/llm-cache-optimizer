@@ -3,17 +3,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 
 @dataclass(slots=True)
 class CacheMetrics:
     """Track cache effectiveness and estimated savings."""
 
+    PROVIDER_PRESETS: ClassVar[dict[str, dict[str, float]]] = {
+        "deepseek-chat": {"input": 1.0, "cached": 0.1},
+        "gpt-4o-mini": {"input": 0.15, "cached": 0.075},
+        "gpt-4o": {"input": 2.5, "cached": 1.25},
+        "claude-sonnet-4-20250514": {"input": 3.0, "cached": 0.30},
+    }
+
     prompt_tokens: int = 0
     cached_tokens: int = 0
     completion_tokens: int = 0
     input_cost_per_1m: float = 0.0
     cached_input_cost_per_1m: float = 0.0
+
+    @classmethod
+    def from_provider(cls, model: str) -> "CacheMetrics":
+        """Create metrics with pricing presets for a known provider model."""
+
+        preset = cls.PROVIDER_PRESETS.get(model, {})
+        return cls(
+            input_cost_per_1m=preset.get("input", 0.0),
+            cached_input_cost_per_1m=preset.get("cached", 0.0),
+        )
 
     @property
     def hit_rate(self) -> float:

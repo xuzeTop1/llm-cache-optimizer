@@ -1,5 +1,7 @@
 # LLM Cache Optimizer
 
+![Tests](https://github.com/xuzeTop1/llm-cache-optimizer/actions/workflows/test.yml/badge.svg)
+
 Agent Cache Runtime for building cache-aware LLM applications.
 
 `llm-cache-optimizer` helps agent developers keep prompt prefixes stable, canonicalize volatile inputs, track cached-token savings, and compact long conversations into reusable session memory.
@@ -16,9 +18,10 @@ This project gives you runtime building blocks for that job:
 
 - Stable prompt layering: core system, tool schema, static context, session memory, history, runtime input
 - Canonical serialization: sorted JSON keys, normalized whitespace, stripped timestamps and request IDs
-- Metrics: cache hit rate, cached tokens, estimated saved cost
+- Metrics: cache hit rate, cached tokens, estimated saved cost with provider pricing presets
 - Provider adapter: `CacheAwareOpenAI`
-- Session memory: local summary and keyword extraction for cache-friendly history compaction
+- Session memory: local or LLM-powered summary and keyword extraction
+- Benchmark tooling: naive vs optimized DeepSeek cache-hit comparisons
 
 ## Install
 
@@ -127,13 +130,24 @@ print(memory["summary"])
 print(memory["keywords"])
 ```
 
-Example output:
+### Session Memory with LLM Summarizer
+
+For higher-quality summaries, pass any callable that accepts history text and returns a summary. This can wrap an LLM call, a local model, or a custom business summarizer.
 
 ```python
-{
-    "summary": "user: We are turning this repo into a Python runtime. user: Next we need an OpenAI adapter and a memory demo.",
-    "keywords": ["adapter", "memory", "openai", "runtime"],
-}
+from llm_cache_optimizer import CacheAwareClient, SessionMemory
+
+
+def summarize_with_llm(history_text: str) -> str:
+    """Return a higher-quality summary from your own LLM call."""
+
+    return "User is building a cache-aware agent runtime with provider adapters."
+
+
+client = CacheAwareClient(memory=SessionMemory(summarizer=summarize_with_llm))
+client.chat("Build an OpenAI adapter and track cached token savings.")
+memory = client.refresh_memory()
+print(memory["summary"])
 ```
 
 ## Core API
@@ -167,27 +181,12 @@ print(stable)
 # {"a":"hello world","b":2}
 ```
 
-### PromptBuilder
-
-```python
-from llm_cache_optimizer import PromptBuilder
-
-builder = PromptBuilder()
-builder.add_core("You are a helpful assistant.")
-builder.add_tool_schema({"name": "read_file"})
-builder.add_static_context("Stable docs")
-builder.add_history("Earlier user message")
-builder.add_runtime("Current user message")
-
-messages = builder.build()
-```
-
 ### CacheMetrics
 
 ```python
 from llm_cache_optimizer import CacheMetrics
 
-metrics = CacheMetrics(input_cost_per_1m=2.50, cached_input_cost_per_1m=1.25)
+metrics = CacheMetrics.from_provider("gpt-4o")
 metrics.update_from_usage({
     "prompt_tokens": 1200,
     "prompt_tokens_details": {"cached_tokens": 900},
@@ -197,20 +196,48 @@ metrics.update_from_usage({
 print(metrics.report())
 ```
 
+## Benchmark Results
+
+The benchmark compares a naive agent that rebuilds its system prompt each turn against an optimized agent using `CacheAwareClient` with stable prefix layers.
+
+Run it with DeepSeek:
+
+```bash
+pip install -e ".[openai]"
+pip install -r benchmark/requirements.txt
+set DEEPSEEK_API_KEY=sk-xxx
+python benchmark/run_benchmark.py
+```
+
+Outputs:
+
+- `benchmark/benchmark.csv`: per-turn cache hit rates and estimated costs
+- `benchmark/benchmark.png`: chart comparing naive vs optimized cache hit curves
+
+![Benchmark placeholder](benchmark/benchmark.png)
+
+After running with a real API key, paste the generated summary table here:
+
+| Metric | Naive | Optimized |
+|---|---:|---:|
+| Avg hit rate | TBD | TBD |
+| Total cost | TBD | TBD |
+| Savings | TBD | TBD |
+
 ## Examples
 
 - [`examples/basic.py`](./examples/basic.py): minimal runtime example
+- [`examples/deepseek_example.py`](./examples/deepseek_example.py): DeepSeek prefix-cache example
 - [`examples/memory_demo.py`](./examples/memory_demo.py): local summary and keyword extraction
-- [`examples/multi_provider_example.py`](./examples/multi_provider_example.py): provider-oriented agent loop patterns
-- [`examples/opencode_example.py`](./examples/opencode_example.py): OpenCode pattern
+- [`examples/multi_provider_example.py`](./examples/multi_provider_example.py): five-layer provider-oriented agent loop
+- [`examples/openai_compatible_example.py`](./examples/openai_compatible_example.py): Codex, OpenCode, and custom OpenAI-compatible gateways
 - [`examples/claude_code_example.py`](./examples/claude_code_example.py): Claude Code pattern
-- [`examples/codex_example.py`](./examples/codex_example.py): Codex pattern
 
 ## Current Roadmap
 
 - v0.1.0: package structure, serializer, prompt layers, cache-aware client
 - v0.2.0: OpenAI adapter, metrics, local session memory
-- v0.3.0: benchmark system for baseline vs optimized agent loops
+- v0.3.0: DeepSeek example, CI, custom summarizers, benchmark tooling
 - v0.4.0: DeepSeek prefix diagnostics and provider-specific optimization reports
 - Future: Claude cache-control adapter, OpenCode hook, Claude Code skill, Codex middleware
 
@@ -222,6 +249,22 @@ print(metrics.report())
 - Put runtime data, timestamps, retrieved chunks, and user input near the end.
 - Normalize tool outputs before appending them to history.
 - Compact long history into session memory instead of moving the prefix.
+
+## Contributing
+
+Contributions are welcome. Good first areas:
+
+- Add provider adapters and usage-field parsers.
+- Improve benchmark scenarios and publish reproducible results.
+- Add cache diagnostics for DeepSeek, Claude, Gemini, and OpenAI-compatible gateways.
+- Improve examples for Codex, Claude Code, OpenCode, and RAG agents.
+
+Before opening a PR:
+
+```bash
+pip install -e ".[openai]"
+pytest tests/ -v
+```
 
 ## License
 

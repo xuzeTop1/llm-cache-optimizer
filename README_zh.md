@@ -1,10 +1,12 @@
 # LLM Cache Optimizer
 
+![Tests](https://github.com/xuzeTop1/llm-cache-optimizer/actions/workflows/test.yml/badge.svg)
+
 面向 Agent 的 Prompt Cache Runtime。
 
-`llm-cache-optimizer` 帮助开发者构建更容易命中前缀缓存的 LLM Agent：稳定 prompt 前缀、规范化易变输入、统计缓存收益，并把长对话压缩成可复用的 session memory。
+`llm-cache-optimizer` 帮助开发者构建更容易命中前缀缓存的 LLM Agent：稳定 prompt 前缀、规范化易变输入、统计 cached token 收益，并把长对话压缩成可复用的 session memory。
 
-当前已经支持 OpenAI 风格的 chat messages，并提供 OpenAI SDK 适配器。核心模块保持 provider-neutral，后续可以继续扩展到 DeepSeek、Claude、Gemini、OpenAI-compatible API、Codex、Claude Code 和 OpenCode 场景。
+当前支持 OpenAI 风格的 chat messages，并提供 OpenAI SDK adapter。核心模块保持 provider-neutral，后续可以继续扩展到 DeepSeek、Claude、Gemini、OpenAI-compatible API、Codex、Claude Code 和 OpenCode 场景。
 
 ## 为什么需要它
 
@@ -16,9 +18,10 @@
 
 - 稳定的 prompt 分层：core system、tool schema、static context、session memory、history、runtime input
 - 规范化序列化：JSON key 排序、whitespace 归一化、移除时间戳和 request id
-- 指标统计：缓存命中率、cached tokens、预估节省成本
+- 指标统计：缓存命中率、cached tokens、基于 provider 价格预设的预估节省成本
 - Provider adapter：`CacheAwareOpenAI`
-- Session memory：本地摘要和关键词提取，用于更 cache-friendly 的历史压缩
+- Session memory：本地摘要或 LLM 摘要，以及关键词提取
+- Benchmark 工具：对比 naive 与 optimized DeepSeek cache hit 曲线
 
 ## 安装
 
@@ -127,13 +130,24 @@ print(memory["summary"])
 print(memory["keywords"])
 ```
 
-示例输出：
+### 使用 LLM Summarizer 的 Session Memory
+
+如果想要更高质量的摘要，可以传入任意 callable。它接收 history text，并返回 summary。这个 callable 可以包装一次 LLM 调用、本地模型，或者你自己的业务摘要器。
 
 ```python
-{
-    "summary": "user: We are turning this repo into a Python runtime. user: Next we need an OpenAI adapter and a memory demo.",
-    "keywords": ["adapter", "memory", "openai", "runtime"],
-}
+from llm_cache_optimizer import CacheAwareClient, SessionMemory
+
+
+def summarize_with_llm(history_text: str) -> str:
+    """Return a higher-quality summary from your own LLM call."""
+
+    return "User is building a cache-aware agent runtime with provider adapters."
+
+
+client = CacheAwareClient(memory=SessionMemory(summarizer=summarize_with_llm))
+client.chat("Build an OpenAI adapter and track cached token savings.")
+memory = client.refresh_memory()
+print(memory["summary"])
 ```
 
 ## 核心 API
@@ -167,27 +181,12 @@ print(stable)
 # {"a":"hello world","b":2}
 ```
 
-### PromptBuilder
-
-```python
-from llm_cache_optimizer import PromptBuilder
-
-builder = PromptBuilder()
-builder.add_core("You are a helpful assistant.")
-builder.add_tool_schema({"name": "read_file"})
-builder.add_static_context("Stable docs")
-builder.add_history("Earlier user message")
-builder.add_runtime("Current user message")
-
-messages = builder.build()
-```
-
 ### CacheMetrics
 
 ```python
 from llm_cache_optimizer import CacheMetrics
 
-metrics = CacheMetrics(input_cost_per_1m=2.50, cached_input_cost_per_1m=1.25)
+metrics = CacheMetrics.from_provider("gpt-4o")
 metrics.update_from_usage({
     "prompt_tokens": 1200,
     "prompt_tokens_details": {"cached_tokens": 900},
@@ -197,20 +196,51 @@ metrics.update_from_usage({
 print(metrics.report())
 ```
 
+## Benchmark Results
+
+benchmark 会对比两种 Agent：
+
+- Naive：每一轮都重建 system prompt，并注入 timestamp
+- Optimized：使用 `CacheAwareClient`，保持稳定 prefix layers
+
+使用 DeepSeek 运行：
+
+```bash
+pip install -e ".[openai]"
+pip install -r benchmark/requirements.txt
+set DEEPSEEK_API_KEY=sk-xxx
+python benchmark/run_benchmark.py
+```
+
+输出：
+
+- `benchmark/benchmark.csv`：每轮 cache hit rate 和预估成本
+- `benchmark/benchmark.png`：naive vs optimized cache hit 曲线图
+
+![Benchmark placeholder](benchmark/benchmark.png)
+
+用真实 API key 跑完后，可以把脚本打印的 summary table 更新到这里：
+
+| Metric | Naive | Optimized |
+|---|---:|---:|
+| Avg hit rate | TBD | TBD |
+| Total cost | TBD | TBD |
+| Savings | TBD | TBD |
+
 ## 示例
 
 - [`examples/basic.py`](./examples/basic.py)：最小 runtime 示例
+- [`examples/deepseek_example.py`](./examples/deepseek_example.py)：DeepSeek prefix-cache 示例
 - [`examples/memory_demo.py`](./examples/memory_demo.py)：本地摘要与关键词提取示例
-- [`examples/multi_provider_example.py`](./examples/multi_provider_example.py)：多 provider Agent loop 模式
-- [`examples/opencode_example.py`](./examples/opencode_example.py)：OpenCode 模式
+- [`examples/multi_provider_example.py`](./examples/multi_provider_example.py)：五层结构的多 provider Agent loop
+- [`examples/openai_compatible_example.py`](./examples/openai_compatible_example.py)：Codex、OpenCode 和自定义 OpenAI-compatible gateway
 - [`examples/claude_code_example.py`](./examples/claude_code_example.py)：Claude Code 模式
-- [`examples/codex_example.py`](./examples/codex_example.py)：Codex 模式
 
 ## 当前路线图
 
 - v0.1.0：package 结构、serializer、prompt layers、cache-aware client
 - v0.2.0：OpenAI adapter、metrics、本地 session memory
-- v0.3.0：benchmark system，对比 baseline 与 optimized agent loop
+- v0.3.0：DeepSeek 示例、CI、自定义 summarizer、benchmark 工具
 - v0.4.0：DeepSeek prefix diagnostics 和 provider-specific optimization report
 - 后续：Claude cache-control adapter、OpenCode hook、Claude Code skill、Codex middleware
 
@@ -222,6 +252,22 @@ print(metrics.report())
 - runtime data、时间戳、检索片段、用户输入尽量放在末尾。
 - tool output 进入 history 前先规范化。
 - 长历史压缩成 session memory，不要移动 prefix。
+
+## Contributing
+
+欢迎贡献。适合优先做的方向：
+
+- 新增 provider adapters 和 usage 字段解析。
+- 改进 benchmark 场景，并发布可复现结果。
+- 为 DeepSeek、Claude、Gemini 和 OpenAI-compatible gateway 增加 cache diagnostics。
+- 改进 Codex、Claude Code、OpenCode 和 RAG Agent 示例。
+
+提交 PR 前建议运行：
+
+```bash
+pip install -e ".[openai]"
+pytest tests/ -v
+```
 
 ## License
 

@@ -77,6 +77,39 @@ It automatically builds cache-ordered messages and reads common usage fields suc
 - `usage.prompt_tokens_details.cached_tokens`
 - `usage.completion_tokens`
 
+## DeepSeek
+
+DeepSeek is a useful provider for cache benchmarking because it has automatic prefix caching, a low minimum cacheable prefix size of about 64 tokens, and cached input tokens are roughly 10% of normal input cost.
+
+Use the OpenAI-compatible adapter with DeepSeek's `base_url`:
+
+```python
+from llm_cache_optimizer import CacheAwareOpenAI
+
+client = CacheAwareOpenAI(
+    api_key="sk-xxx",
+    model="deepseek-chat",
+    base_url="https://api.deepseek.com/v1",
+)
+
+client.add_core(
+    "You are a helpful coding assistant. Keep this stable and long enough "
+    "for DeepSeek prefix caching."
+)
+client.add_static_context("Project docs here...")
+
+for question in ["Explain decorators", "Show a retry pattern", "Write a cache layer"]:
+    response = client.chat(question)
+    print(client.cache_report())
+```
+
+DeepSeek-compatible usage objects may expose cache fields such as:
+
+- `usage.prompt_cache_hit_tokens`
+- `usage.prompt_cache_miss_tokens`
+
+`CacheMetrics.update_from_usage()` reads `prompt_cache_hit_tokens` when present.
+
 ## Session Memory
 
 Long-running agents should not keep rebuilding unstable prompt prefixes. Use session memory to summarize history and extract reusable keywords.

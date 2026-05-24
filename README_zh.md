@@ -77,6 +77,39 @@ OpenAI().chat.completions.create(...)
 - `usage.prompt_tokens_details.cached_tokens`
 - `usage.completion_tokens`
 
+## DeepSeek
+
+DeepSeek 很适合作为缓存 benchmark 的低成本 provider：它支持自动前缀缓存，最小可缓存前缀大约 64 tokens，cached input token 成本大约是普通 input token 的 10%。
+
+使用 OpenAI-compatible adapter，并把 `base_url` 指向 DeepSeek：
+
+```python
+from llm_cache_optimizer import CacheAwareOpenAI
+
+client = CacheAwareOpenAI(
+    api_key="sk-xxx",
+    model="deepseek-chat",
+    base_url="https://api.deepseek.com/v1",
+)
+
+client.add_core(
+    "You are a helpful coding assistant. Keep this stable and long enough "
+    "for DeepSeek prefix caching."
+)
+client.add_static_context("Project docs here...")
+
+for question in ["Explain decorators", "Show a retry pattern", "Write a cache layer"]:
+    response = client.chat(question)
+    print(client.cache_report())
+```
+
+DeepSeek-compatible usage 对象通常会暴露缓存字段，例如：
+
+- `usage.prompt_cache_hit_tokens`
+- `usage.prompt_cache_miss_tokens`
+
+`CacheMetrics.update_from_usage()` 会在这些字段存在时读取 `prompt_cache_hit_tokens`。
+
 ## Session Memory
 
 长时间运行的 Agent 不应该不断重建不稳定的 prompt prefix。可以使用 session memory 对历史进行摘要，并提取可复用关键词。

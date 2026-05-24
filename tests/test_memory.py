@@ -22,6 +22,25 @@ def test_session_memory_extracts_summary_and_keywords():
     assert "openai" in memory.keywords
 
 
+def test_session_memory_uses_custom_summarizer():
+    def summarizer(text: str) -> str:
+        assert "OpenAI adapter" in text
+        return "Custom LLM summary."
+
+    memory = SessionMemory(summarizer=summarizer)
+    memory.update(
+        [
+            {
+                "role": "user",
+                "content": "Build an OpenAI adapter for prompt cache metrics.",
+            }
+        ]
+    )
+
+    assert memory.summary == "Custom LLM summary."
+    assert "openai" in memory.keywords
+
+
 def test_cache_aware_client_injects_refreshed_memory_before_history():
     client = CacheAwareClient()
     client.add_core("core")

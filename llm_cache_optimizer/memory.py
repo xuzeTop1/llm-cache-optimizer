@@ -6,7 +6,7 @@ import re
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 
 DEFAULT_STOPWORDS = frozenset(
@@ -67,19 +67,26 @@ SENTENCE_RE = re.compile(r"(?<=[.!?。！？])\s+")
 
 @dataclass(slots=True)
 class SessionMemory:
-    """Summarize chat history into a compact cache-friendly memory block."""
+    """Summarize chat history into a compact cache-friendly memory block.
+
+    Pass an optional ``summarizer`` callable to use an external LLM or custom
+    summarization strategy. The callable receives normalized history text and
+    returns a summary string. Without it, SessionMemory uses a deterministic
+    local truncation strategy.
+    """
 
     summary: str = ""
     keywords: list[str] = field(default_factory=list)
     max_summary_chars: int = 360
     max_keywords: int = 8
     stopwords: set[str] = field(default_factory=lambda: set(DEFAULT_STOPWORDS))
+    summarizer: Callable[[str], str] | None = None
 
     def update(self, history: Iterable[dict[str, Any]]) -> "SessionMemory":
         """Refresh summary and keywords from role/content messages."""
 
         text = _history_text(history)
-        self.summary = self.summarize(text)
+        self.summary = self.summarizer(text) if self.summarizer else self.summarize(text)
         self.keywords = self.extract_keywords(text)
         return self
 
@@ -141,6 +148,8 @@ class SessionMemory:
 
 
 def _history_text(history: Iterable[dict[str, Any]]) -> str:
+    """Format role/content messages as plain text for summarization."""
+
     chunks = []
     for message in history:
         role = message.get("role", "unknown")

@@ -1,0 +1,9 @@
+{
+  "mcp": {
+    "cache_optimizer": {
+      "type": "local",
+      "command": ["python", "-m", "llm_cache_optimizer.mcp_server"],
+      "description": "LLM Cache Optimizer: prompt layering, canonicalization, and cache metrics"
+    }
+  }
+}

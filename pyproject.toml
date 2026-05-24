@@ -40,7 +40,11 @@ Issues = "https://github.com/xuzeTop1/llm-cache-optimizer/issues"
 [project.optional-dependencies]
 openai = ["openai>=1.0.0"]
 anthropic = ["anthropic>=0.30.0"]
+mcp = []  # MCP server has no extra dependencies (stdlib only)
 all = ["openai>=1.0.0", "anthropic>=0.30.0"]
+
+[project.scripts]
+lco-mcp = "llm_cache_optimizer.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["llm_cache_optimizer"]

@@ -1,6 +1,8 @@
 # LLM Cache Optimizer
 
 ![Tests](https://github.com/xuzeTop1/llm-cache-optimizer/actions/workflows/test.yml/badge.svg)
+[![PyPI version](https://img.shields.io/pypi/v/llm-cache-optimizer.svg)](https://pypi.org/project/llm-cache-optimizer/)
+[![Python 3.9+](https://img.shields.io/pypi/pyversions/llm-cache-optimizer.svg)](https://pypi.org/project/llm-cache-optimizer/)
 
 Agent Cache Runtime for building cache-aware LLM applications.
 
@@ -25,20 +27,26 @@ This project gives you runtime building blocks for that job:
 
 ## Install
 
-From source (recommended until PyPI release):
+From PyPI (recommended):
+
+```bash
+pip install llm-cache-optimizer
+```
+
+With provider dependencies:
+
+```bash
+pip install "llm-cache-optimizer[openai]"      # OpenAI SDK (also works with DeepSeek)
+pip install "llm-cache-optimizer[anthropic]"   # Anthropic SDK for Claude
+pip install "llm-cache-optimizer[all]"         # Both providers + dev tools
+```
+
+From source (development):
 
 ```bash
 git clone https://github.com/xuzeTop1/llm-cache-optimizer.git
 cd llm-cache-optimizer
-pip install -e .
-```
-
-With optional provider dependencies:
-
-```bash
-pip install -e ".[openai]"      # OpenAI SDK (also works with DeepSeek)
-pip install -e ".[anthropic]"   # Anthropic SDK for Claude
-pip install -e ".[all]"         # Both providers
+pip install -e ".[all,dev]"
 ```
 
 ## Quick Start

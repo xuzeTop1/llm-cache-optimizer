@@ -1,6 +1,7 @@
 # LLM Cache Optimizer
 
 ![Tests](https://github.com/xuzeTop1/llm-cache-optimizer/actions/workflows/test.yml/badge.svg)
+[![PyPI version](https://img.shields.io/pypi/v/llm-cache-optimizer.svg)](https://pypi.org/project/llm-cache-optimizer/)
 
 面向 Agent 的 Prompt Cache Runtime。
 
@@ -25,20 +26,26 @@
 
 ## 安装
 
-从源码安装（推荐，直到 PyPI 发布）：
+从 PyPI 安装（推荐）：
 
 ```bash
-git clone https://github.com/xuzeTop1/llm-cache-optimizer.git
-cd llm-cache-optimizer
-pip install -e .
+pip install llm-cache-optimizer
 ```
 
 使用可选的 provider 依赖：
 
 ```bash
-pip install -e ".[openai]"      # OpenAI SDK（也适用于 DeepSeek）
-pip install -e ".[anthropic]"   # Anthropic SDK（Claude）
-pip install -e ".[all]"         # 所有 provider
+pip install "llm-cache-optimizer[openai]"      # OpenAI SDK（也适用于 DeepSeek）
+pip install "llm-cache-optimizer[anthropic]"   # Anthropic SDK（Claude）
+pip install "llm-cache-optimizer[all]"         # 所有 provider + 开发工具
+```
+
+从源码安装（开发）：
+
+```bash
+git clone https://github.com/xuzeTop1/llm-cache-optimizer.git
+cd llm-cache-optimizer
+pip install -e ".[all,dev]"
 ```
 
 ## 快速开始

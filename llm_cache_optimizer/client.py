@@ -11,6 +11,8 @@ from .metrics import CacheMetrics
 from .serializer import CanonicalSerializer
 
 ChatCallable = Callable[[list[dict[str, str]]], Any]
+UsageExtractor = Callable[[Any], Any]
+AssistantTextExtractor = Callable[[Any], str | None]
 
 
 class CacheAwareClient:
@@ -22,11 +24,15 @@ class CacheAwareClient:
         serializer: CanonicalSerializer | None = None,
         metrics: CacheMetrics | None = None,
         memory: SessionMemory | None = None,
+        usage_extractor: UsageExtractor | None = None,
+        assistant_text_extractor: AssistantTextExtractor | None = None,
     ) -> None:
         self.chat_callable = chat_callable
         self.serializer = serializer or CanonicalSerializer()
         self.metrics = metrics or CacheMetrics()
         self.memory = memory or SessionMemory()
+        self.usage_extractor = usage_extractor or _extract_usage
+        self.assistant_text_extractor = assistant_text_extractor or _extract_assistant_text
         self.builder = PromptBuilder(serializer=self.serializer)
         self.history: list[dict[str, str]] = []
         self._session_memory: dict[str, Any] | None = None
@@ -73,11 +79,11 @@ class CacheAwareClient:
             return messages
 
         response = self.chat_callable(messages, **kwargs)
-        usage = _extract_usage(response)
+        usage = self.usage_extractor(response)
         if usage is not None:
             self.metrics.update_from_usage(usage)
 
-        assistant_text = _extract_assistant_text(response)
+        assistant_text = self.assistant_text_extractor(response)
         if assistant_text:
             self.history.append({"role": "assistant", "content": assistant_text})
 

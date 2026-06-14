@@ -68,14 +68,23 @@ print(messages)
 core_system -> tool_schema -> static_context -> session_memory -> history -> runtime
 ```
 
-## OpenAI Adapter
+## ChatGPT / OpenAI Adapter
+
+OpenAI API 上的 ChatGPT 模型会对符合条件的长 prompt 自动进行前缀缓存。你不需要添加 provider 专用的 cache marker；最关键的是让每次请求开头的稳定内容保持完全一致。OpenAI 会通过 `usage.prompt_tokens_details.cached_tokens` 返回实际命中的缓存 token 数。
 
 ```python
 from llm_cache_optimizer import CacheAwareOpenAI
 
 client = CacheAwareOpenAI(api_key="...", model="gpt-4o-mini")
-client.add_core("You are a concise coding assistant.")
-client.add_static_context("Stable project docs go here.")
+client.add_core(
+    "You are ChatGPT, a concise coding assistant. "
+    "Keep these instructions stable across the whole session."
+)
+client.add_tool_schema({
+    "name": "read_file",
+    "description": "Read a file from the current project.",
+})
+client.add_static_context("Stable project docs, repository notes, and coding rules go here.")
 
 response = client.chat("Refactor this function.")
 print(client.cache_report())
@@ -93,6 +102,8 @@ OpenAI().chat.completions.create(...)
 - `usage.prompt_tokens_details.cached_tokens`
 - `usage.completion_tokens`
 
+在 ChatGPT 类应用里，建议把长期稳定的人设、系统指令、工具 schema、项目上下文和 examples 放进 `add_core()`、`add_tool_schema()` 和 `add_static_context()`。用户问题、时间戳、检索片段和每轮变化的状态放在 `chat()` 或 history 末尾，避免破坏前缀缓存。
+
 ## Claude Adapter
 
 Claude 需要**显式**的 `cache_control` 标记来指定哪些内容块应该被缓存（每个块最少 1024 tokens）。`CacheAwareClaude` adapter 会自动处理这些：
@@ -109,10 +120,10 @@ print(client.cache_report())
 ```
 
 底层实现：
-1. 将所有稳定层（core、tools、static context）合并为一条 user message
-2. 如果内容足够大（≥ 4096 字符 ≈ 1024 tokens），自动添加 `cache_control: {"type": "ephemeral"}`
-3. 在 prefix 后插入 assistant turn（"Understood."）— Claude 缓存机制需要
-4. 将剩余历史转换为 Claude Messages API 格式
+1. 将开头的稳定层（core、tools、static context）合并到 Claude 原生的 `system` 字段
+2. 如果 system block 足够大（≥ 4096 字符 ≈ 1024 tokens），自动添加 `cache_control: {"type": "ephemeral"}`
+3. 将剩余 user、assistant 和 tool history 转换为 Claude Messages API 格式
+4. 读取 Anthropic usage 字段，例如 `cache_read_input_tokens`
 
 安装：
 

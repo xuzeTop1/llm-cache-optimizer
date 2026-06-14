@@ -66,16 +66,17 @@ def test_claude_adapter_builds_cache_control_on_large_prefix():
     assert fake.messages.last_request["model"] == "claude-sonnet-4-20250514"
     assert fake.messages.last_request["max_tokens"] == 4096
 
-    # First message should be user with content blocks
-    first_msg = fake.messages.last_request["messages"][0]
-    assert first_msg["role"] == "user"
-    assert isinstance(first_msg["content"], list)
+    # Stable prefix should remain in Claude's native system field.
+    system = fake.messages.last_request["system"]
+    assert isinstance(system, list)
 
-    # Should have cache_control since the prefix is large enough
-    block = first_msg["content"][0]
+    # Should have cache_control since the system prefix is large enough.
+    block = system[0]
     assert block["type"] == "text"
     assert "cache_control" in block
     assert block["cache_control"] == {"type": "ephemeral"}
+
+    assert fake.messages.last_request["messages"] == [{"role": "user", "content": "Hello"}]
 
 
 def test_claude_adapter_skips_cache_control_on_small_prefix():
@@ -88,16 +89,13 @@ def test_claude_adapter_skips_cache_control_on_small_prefix():
 
     client.chat("Hello")
 
-    first_msg = fake.messages.last_request["messages"][0]
-    assert first_msg["role"] == "user"
-
-    block = first_msg["content"][0]
+    block = fake.messages.last_request["system"][0]
     assert block["type"] == "text"
     assert "cache_control" not in block
 
 
-def test_claude_adapter_inserts_assistant_turn_after_prefix():
-    """Claude requires an assistant turn after user content for caching."""
+def test_claude_adapter_keeps_system_prefix_out_of_message_history():
+    """Stable system prefix should not be rewritten into fake chat turns."""
 
     fake = FakeAnthropicClient()
     client = CacheAwareClaude(client=fake)
@@ -107,12 +105,8 @@ def test_claude_adapter_inserts_assistant_turn_after_prefix():
     client.chat("Hi")
 
     messages = fake.messages.last_request["messages"]
-    # [0] = user (prefix), [1] = assistant ("Understood."), [2] = user ("Hi")
-    assert len(messages) >= 3
-    assert messages[0]["role"] == "user"
-    assert messages[1]["role"] == "assistant"
-    assert messages[1]["content"] == "Understood."
-    assert messages[2]["role"] == "user"
+    assert messages == [{"role": "user", "content": "Hi"}]
+    assert "system" in fake.messages.last_request
 
 
 def test_claude_adapter_tracks_metrics():
@@ -126,6 +120,20 @@ def test_claude_adapter_tracks_metrics():
     assert client.metrics.prompt_tokens == 2000
     assert client.metrics.cached_tokens == 1500
     assert client.metrics.hit_rate == 0.75
+
+
+def test_claude_adapter_tracks_assistant_text_in_history():
+    """Anthropic content blocks should be converted to plain assistant text."""
+
+    fake = FakeAnthropicClient()
+    client = CacheAwareClaude(client=fake)
+
+    client.chat("Test")
+
+    assert client.history[-1] == {
+        "role": "assistant",
+        "content": "Hello from Claude.",
+    }
 
 
 def test_claude_adapter_build_client_raises_without_sdk():

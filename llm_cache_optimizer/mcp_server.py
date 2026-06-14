@@ -215,6 +215,15 @@ class MCPServer:
         static = args.get("static_prefix", {})
 
         builder = PromptBuilder(serializer=self.serializer)
+        static_values = {
+            self.serializer.normalize(value)
+            for value in (
+                static.get("core"),
+                static.get("tool_schema"),
+                static.get("static_context"),
+            )
+            if value
+        }
 
         if static.get("core"):
             builder.add_core(static["core"])
@@ -228,9 +237,10 @@ class MCPServer:
             role = msg.get("role", "user")
             content = msg.get("content", "")
             if role == "system":
-                # Already handled via static_prefix; skip duplicates
-                continue
-            elif role in ("user", "assistant"):
+                normalized = self.serializer.normalize(content)
+                if normalized not in static_values:
+                    builder.add_core(content)
+            elif role in ("user", "assistant", "tool"):
                 builder.add_history(content, role=role)
 
         optimized = builder.build()
@@ -248,12 +258,18 @@ class MCPServer:
         """Normalize data for cache stability."""
         data = args.get("data", {})
 
-        # Update volatile keys if custom strip_fields provided
+        # Apply per-call volatile keys without mutating server-wide state.
         strip_fields = args.get("strip_fields")
-        if strip_fields:
-            self.serializer.volatile_keys.update(strip_fields)
+        serializer = CanonicalSerializer(
+            volatile_keys=set(self.serializer.volatile_keys) | set(strip_fields or []),
+            timestamp_placeholder=self.serializer.timestamp_placeholder,
+            uuid_placeholder=self.serializer.uuid_placeholder,
+            request_id_placeholder=self.serializer.request_id_placeholder,
+            sort_keys=self.serializer.sort_keys,
+            ensure_ascii=self.serializer.ensure_ascii,
+        )
 
-        canonical = self.serializer.normalize(data)
+        canonical = serializer.normalize(data)
 
         return {
             "canonicalized": canonical,
@@ -297,10 +313,12 @@ class MCPServer:
         total_chars = sum(len(m.get("content", "")) for m in messages)
         total_tokens_est = total_chars // 4
 
-        # Stable prefix = first 2 messages (system + static context)
-        stable_chars = sum(
-            len(m.get("content", "")) for m in messages[:2]
-        ) if len(messages) > 2 else 0
+        stable_chars = 0
+        for message in messages:
+            role = message.get("role", "user")
+            if role not in {"system", "developer", "tool"}:
+                break
+            stable_chars += len(message.get("content", ""))
         stable_tokens_est = stable_chars // 4
 
         hit_rate = round(stable_tokens_est / max(total_tokens_est, 1), 2)

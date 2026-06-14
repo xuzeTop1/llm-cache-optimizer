@@ -69,14 +69,27 @@ The stable layers are always placed before dynamic user input:
 core_system -> tool_schema -> static_context -> session_memory -> history -> runtime
 ```
 
-## OpenAI Adapter
+## ChatGPT / OpenAI Adapter
+
+ChatGPT models on the OpenAI API use automatic prompt prefix caching for
+eligible long prompts. You do not need to add provider-specific cache markers;
+the most important thing is to keep the beginning of your request identical
+between calls. OpenAI reports cache hits through
+`usage.prompt_tokens_details.cached_tokens`.
 
 ```python
 from llm_cache_optimizer import CacheAwareOpenAI
 
 client = CacheAwareOpenAI(api_key="...", model="gpt-4o-mini")
-client.add_core("You are a concise coding assistant.")
-client.add_static_context("Stable project docs go here.")
+client.add_core(
+    "You are ChatGPT, a concise coding assistant. "
+    "Keep these instructions stable across the whole session."
+)
+client.add_tool_schema({
+    "name": "read_file",
+    "description": "Read a file from the current project.",
+})
+client.add_static_context("Stable project docs, repository notes, and coding rules go here.")
 
 response = client.chat("Refactor this function.")
 print(client.cache_report())
@@ -94,6 +107,12 @@ It automatically builds cache-ordered messages and reads common usage fields suc
 - `usage.prompt_tokens_details.cached_tokens`
 - `usage.completion_tokens`
 
+For ChatGPT-style applications, put the long-lived persona, instructions, tool
+schemas, repository context, and examples in `add_core()`, `add_tool_schema()`,
+and `add_static_context()`. Put user questions, timestamps, retrieval snippets,
+and per-turn state in `chat()` or history so they stay near the end and do not
+break the cached prefix.
+
 ## Claude Adapter
 
 Claude requires **explicit** `cache_control` breakpoints on stable content blocks (minimum 1024 tokens each). The `CacheAwareClaude` adapter handles this automatically:
@@ -110,10 +129,10 @@ print(client.cache_report())
 ```
 
 Under the hood, the adapter:
-1. Merges all stable layers (core, tools, static context) into a single user message
-2. Adds `cache_control: {"type": "ephemeral"}` if the block is large enough (≥ 4096 chars ≈ 1024 tokens)
-3. Inserts an assistant turn ("Understood.") after the prefix — required by Claude for caching
-4. Converts remaining history to Claude's Messages API format
+1. Merges all leading stable layers (core, tools, static context) into Claude's native `system` field
+2. Adds `cache_control: {"type": "ephemeral"}` if the system block is large enough (≥ 4096 chars ≈ 1024 tokens)
+3. Converts remaining user, assistant, and tool history to Claude's Messages API format
+4. Reads Anthropic usage fields such as `cache_read_input_tokens`
 
 Install:
 

@@ -1,9 +1,9 @@
 """Anthropic Claude adapter with explicit cache_control breakpoints.
 
-Claude requires explicit ``cache_control`` markers on message blocks that
-should be cached.  Each marked block must be **≥ 1024 tokens**.  This
-adapter places breakpoints at every stable layer boundary (core, tools,
-static context) so the provider can cache each layer independently.
+Claude can cache reusable content through ``cache_control`` markers on
+cacheable blocks.  This adapter keeps stable prompt layers in the native
+Claude ``system`` parameter and marks that system block when it is large
+enough to be cacheable.
 
 Usage::
 
@@ -22,7 +22,6 @@ from __future__ import annotations
 from typing import Any
 
 from ..client import CacheAwareClient
-from ..layers import PromptLayer
 from ..metrics import CacheMetrics
 from ..serializer import CanonicalSerializer
 
@@ -66,6 +65,8 @@ class CacheAwareClaude(CacheAwareClient):
             chat_callable=self._chat_completion,
             serializer=serializer,
             metrics=metrics or CacheMetrics.from_provider(model),
+            usage_extractor=_extract_usage,
+            assistant_text_extractor=_extract_assistant_text,
         )
 
     def _build_client(self, api_key: str | None, **client_kwargs: Any) -> Any:
@@ -86,18 +87,20 @@ class CacheAwareClaude(CacheAwareClient):
     # Message construction with cache_control breakpoints
     # ------------------------------------------------------------------
 
-    def _build_claude_messages(self, messages: list[dict[str, str]]) -> list[dict[str, Any]]:
-        """Convert provider-neutral messages into Claude format with cache_control.
+    def _split_claude_request(
+        self,
+        messages: list[dict[str, str]],
+    ) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]]]:
+        """Convert provider-neutral messages into Claude system/messages fields.
 
         Strategy:
-        1. Group consecutive stable (system) messages into cacheable blocks.
-        2. If a block is large enough (≥ _MIN_CACHEABLE_CHARS), add cache_control.
-        3. If not, merge with the next stable block until the threshold is met.
-        4. Dynamic / user / assistant messages pass through without cache_control.
+        1. Group the leading stable system messages into Claude's system field.
+        2. If the merged system block is large enough, add cache_control.
+        3. Dynamic user / assistant / tool messages pass through as messages.
         """
 
         if not messages:
-            return []
+            return None, []
 
         # Separate system (stable) prefix from the rest
         stable_parts: list[str] = []
@@ -111,30 +114,18 @@ class CacheAwareClaude(CacheAwareClient):
                 found_dynamic = True
                 dynamic_messages.append(msg)
 
-        # Merge all stable parts into content blocks with cache_control
-        claude_messages: list[dict[str, Any]] = []
+        system_blocks: list[dict[str, Any]] | None = None
 
         if stable_parts:
             merged_text = "\n\n".join(stable_parts)
 
+            block: dict[str, Any] = {"type": "text", "text": merged_text}
             if len(merged_text) >= self._MIN_CACHEABLE_CHARS:
-                # Large enough → single cacheable block
-                content_blocks = [
-                    {
-                        "type": "text",
-                        "text": merged_text,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ]
-            else:
-                # Too small → no cache_control (won't be cached anyway)
-                content_blocks = [{"type": "text", "text": merged_text}]
-
-            claude_messages.append({"role": "user", "content": content_blocks})
-            # Claude requires an assistant turn after user content for caching
-            claude_messages.append({"role": "assistant", "content": "Understood."})
+                block["cache_control"] = {"type": "ephemeral"}
+            system_blocks = [block]
 
         # Convert dynamic messages
+        claude_messages: list[dict[str, Any]] = []
         for msg in dynamic_messages:
             role = msg["role"]
             content = msg.get("content", "")
@@ -176,18 +167,20 @@ class CacheAwareClaude(CacheAwareClient):
                     "content": content if isinstance(content, str) else str(content),
                 })
 
-        return claude_messages
+        return system_blocks, claude_messages
 
     # ------------------------------------------------------------------
     # API call
     # ------------------------------------------------------------------
 
     def _chat_completion(self, messages: list[dict[str, str]], **kwargs: Any) -> Any:
-        claude_messages = self._build_claude_messages(messages)
+        system_blocks, claude_messages = self._split_claude_request(messages)
 
         request_kwargs = dict(kwargs)
         request_kwargs.setdefault("model", self.model)
         request_kwargs.setdefault("max_tokens", self.max_tokens)
+        if system_blocks:
+            request_kwargs["system"] = system_blocks
         request_kwargs["messages"] = claude_messages
 
         return self.anthropic_client.messages.create(**request_kwargs)
